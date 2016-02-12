@@ -149,7 +149,11 @@ class NestedAttributeValueFormatter < JSONAPI::ValueFormatter
         attrs
       else
         resource = resource_class.new(raw_value, context)
-        serializer.send :attribute_hash, resource
+        if raw_value && raw_value.respond_to?(:id)
+          serializer.send(:attribute_hash, resource).merge(id: raw_value.id)
+        else
+          serializer.send(:attribute_hash, resource)
+        end
       end
     end
 
