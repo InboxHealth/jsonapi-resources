@@ -149,16 +149,48 @@ class NestedAttributeValueFormatter < JSONAPI::ValueFormatter
         attrs
       else
         resource = resource_class.new(raw_value, context)
-        if raw_value && raw_value.respond_to?(:id)
-          serializer.send(:attribute_hash, resource).merge(id: raw_value.id)
-        else
-          serializer.send(:attribute_hash, resource)
+        attrs_hash = if raw_value && raw_value.respond_to?(:id)
+                       serializer.send(:attribute_hash, resource).merge(id: raw_value.id)
+                     else
+                       serializer.send(:attribute_hash, resource)
+                     end
+        unless resource.nil? || resource._model.nil?
+          rel_names = relationship_class_names(resource)
+          rel_names.each_with_object(attrs_hash) do |(k, resource_name), obj|
+            serializer = JSONAPI::ResourceSerializer.new resource_name.constantize
+            models = resource.send(k)
+            rel_objects = models.each_with_object([]) do |model, obj|
+              obj << serializer.send(:attribute_hash, model)
+            end
+            obj.merge!(k => rel_objects) unless rel_objects.empty?
+          end
         end
+        attrs_hash
       end
     end
 
     def unformat(value)
       super(value)
     end
+
+    def relationship_class_names(resource)
+      relationships = resource.class._relationships
+      prefix = resource.class.to_s.split(/::/).tap(&:pop).join('::')
+      relationships.each_with_object({}) do |(name, _v), obj|
+        string_name = name.to_s
+        full_name = "#{prefix}::#{string_name.classify}Resource"
+        if !Object.const_defined?(full_name)
+          if string_name.include?('_ids')
+            external_id_name = string_name.split('_').insert(1, resource._model.class.name).join('_').classify
+            full_name = "#{prefix}::#{external_id_name}Resource"
+          else
+            # If we get here we are in trouble.
+            raise "Unable to locate constant for declared assiocation on resource, #{resource.class.name}"
+          end
+        end
+        obj[name] = full_name
+      end
+    end
   end
 end
+
